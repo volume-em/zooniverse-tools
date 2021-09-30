@@ -140,12 +140,13 @@ if __name__ == '__main__':
     # sort the stacks from lowest to highest consensus strength
     consensus_attrs = sorted(consensus_attrs.items(), key=lambda x: x[1]['consensus_strength'])
 
-    for i, (k, v) in enumerate(consensus_attrs):
-    	print(i, i * 6, k, v['consensus_strength'])
+    # save the consensus attributes as a list
+    attr_fpath = os.path.join(args.save_dir, 'consensus_attributes.pkl')
+    with open(attr_fpath, 'wb') as handle:
+        pickle.dump(consensus_attrs, handle)
 
-    """
+    # convert to a dictionary
     consensus_attrs = {k: v for k,v in consensus_attrs}
-    
 
     image_stack = []
     mask_stack = []
@@ -174,8 +175,6 @@ if __name__ == '__main__':
         image_stack.append(flipbook)
         mask_stack.append(flipbook_mask)
         
-    for ix, (name, v) in enumerate(consensus_attrs.items()):
-        print(ix, name, v['consensus_strength'])
         
     # find dimensions of largest image
     max_h = max(img.shape[1] for img in image_stack)
@@ -188,13 +187,7 @@ if __name__ == '__main__':
         
     image_stack = np.concatenate(image_stack, axis=0).astype(np.uint8)
     mask_stack = np.concatenate(mask_stack, axis=0)
-    
-    # save the consensus attributes and image and mask stacks
-    attr_fpath = os.path.join(args.save_dir, 'consensus_attributes.pkl')
-    with open(attr_fpath, 'wb') as handle:
-        pickle.dump(consensus_attrs, handle)
-    
-    """
-    #batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
-    #io.imsave(os.path.join(args.save_dir, f'{batch_name}_images.tif'), image_stack, check_contrast=False)
-    #io.imsave(os.path.join(args.save_dir, f'{batch_name}_cs_masks.tif'), mask_stack, check_contrast=False)
+
+    batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
+    io.imsave(os.path.join(args.save_dir, f'{batch_name}_images.tif'), image_stack, check_contrast=False)
+    io.imsave(os.path.join(args.save_dir, f'{batch_name}_cs_masks.tif'), mask_stack, check_contrast=False)
