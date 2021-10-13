@@ -45,6 +45,7 @@ if __name__ == '__main__':
     
     def parse_annotation(annotation):
         """Helper function for extracting polygons and confidence"""
+        confidence = None
         for task in annotation:
             # annotation is task T0
             if task['task'] == 'T0':
@@ -59,6 +60,12 @@ if __name__ == '__main__':
 
             else:
                 confidence = int(task['value'][:1])
+
+        if confidence is None:
+            print([task['task'] for task in annotation])
+            print(f'No confidence found for image, using 1!')
+            confidence = 2
+
                 
         return polygons, confidence
     
@@ -122,17 +129,17 @@ if __name__ == '__main__':
         instance_seg = aggregated_instance_segmentation(instance_scores, vote_thr=0.5)
         
         # compute average precision between each
-        # mask and the consensus, this measure strength
+        # mask and the consensus, this measures strength
         # of the consensus annotations
         if using_gt:
             scores = [10]
         else:
             scores = [average_precision(instance_seg, mask, 0.50, False)[0] for mask in masks]
 
-        avg_confidence = np.mean(subject_dict['confidences'])
+        median_confidence = np.median(subject_dict['confidences'])
         consensus_strength = np.mean(scores)
         consensus_attrs[imname] = {
-            'id': subject_id, 'avg_confidence': avg_confidence, 
+            'id': subject_id, 'median_confidence': median_confidence, 
             'consensus_strength': consensus_strength,
             'seg': instance_seg
         }
@@ -140,19 +147,24 @@ if __name__ == '__main__':
     # sort the stacks from lowest to highest consensus strength
     consensus_attrs = sorted(consensus_attrs.items(), key=lambda x: x[1]['consensus_strength'])
 
-    # save the consensus attributes as a list
-    attr_fpath = os.path.join(args.save_dir, 'consensus_attributes.pkl')
-    with open(attr_fpath, 'wb') as handle:
-        pickle.dump(consensus_attrs, handle)
-
-    # convert to a dictionary
-    consensus_attrs = {k: v for k,v in consensus_attrs}
-
     image_stack = []
     mask_stack = []
-    for imname, attrs in consensus_attrs.items():
+
+    consensus_df = pd.DataFrame(columns=['start', 'end', 'image_name', 'zooniverse_id', 'median_confidence', 'consensus_strength'])
+
+    idx = 0
+    for x in consensus_attrs:
+        imname, attrs = x
         # convert from imname to stack name
         stack_fname = '_'.join(imname.split('_')[:-1]) + '.tif'
+
+        # SPECIFIC FOR BATCH 1
+        #loc_str = stack_fname.split('-LOC-5stack-')[-1]
+        #axis = loc_str.split('_')[-3][:1]
+        #zindex = loc_str.split('_')[-1].split('.tif')[0].zfill(4)
+        #yindex = loc_str.split('_')[-3][1:]
+        #xindex = loc_str.split('_')[-2]
+        #stack_fname = stack_fname.split('-LOC-')[0] + f'-LOC-5stack-{axis}_{zindex}_{yindex}_{xindex}.tiff'
         
         try:
             flipbook = io.imread(os.path.join(args.image_dir, stack_fname))
@@ -174,11 +186,24 @@ if __name__ == '__main__':
         
         image_stack.append(flipbook)
         mask_stack.append(flipbook_mask)
-        
-        
+
+        consensus_df = consensus_df.append({
+            'start': idx * 6, 'end': (idx + 1) * 6 - 1,
+            'image_name': stack_fname, 'zooniverse_id': attrs['id'],
+            'median_confidence': attrs['median_confidence'],
+            'consensus_strength': attrs['consensus_strength']
+        }, ignore_index=True)
+
+        idx += 1
+
+    # save the consensus attributes as a list
+    batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
+    attr_fpath = os.path.join(args.save_dir, f'{batch_name}_consensus_attributes.csv')
+    consensus_df.to_csv(attr_fpath, index=False)
+                
     # find dimensions of largest image
-    max_h = max(img.shape[1] for img in image_stack)
-    max_w = max(img.shape[2] for img in image_stack)
+    max_h = max([img.shape[1] for img in image_stack])
+    max_w = max([img.shape[2] for img in image_stack])
     
     # pad all images and masks to the maximum size
     for ix, (img, msk) in enumerate(zip(image_stack, mask_stack)):
@@ -188,6 +213,5 @@ if __name__ == '__main__':
     image_stack = np.concatenate(image_stack, axis=0).astype(np.uint8)
     mask_stack = np.concatenate(mask_stack, axis=0)
 
-    batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
     io.imsave(os.path.join(args.save_dir, f'{batch_name}_images.tif'), image_stack, check_contrast=False)
     io.imsave(os.path.join(args.save_dir, f'{batch_name}_cs_masks.tif'), mask_stack, check_contrast=False)
