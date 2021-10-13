@@ -1,16 +1,8 @@
-import PIL
 import os
 import argparse
-import scipy
-import skimage
-import numpy as np
-from tqdm import tqdm
+import pandas as pd
 from glob import glob
 from skimage import io
-import matplotlib.pyplot as plt
-import pandas as pd
-import tifffile
-import cv2
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -26,16 +18,16 @@ if __name__ == '__main__':
                         help='chunk size')
     
     args = parser.parse_args()
-    
-
     imf = args.im_file
     segf = args.mask_file
     sdir = args.save_dir
     chunk_size = args.cs
     csvf = args.csv_file
+
+    os.makedirs(sdir, exist_ok=True)
     
-    im = io.imread(imf, plugin="tifffile") #or tifffile.imread(imf)
-    seg = io.imread(segf, plugin="tifffile")
+    im = io.imread(imf)
+    seg = io.imread(segf)
     attr_csv = pd.read_csv(csvf)
 
     start = 0
@@ -44,9 +36,8 @@ if __name__ == '__main__':
     remain = stop - (stop % step)
     sindices = range(start, stop, step) 
     eindices = range(step, stop + step, step)
-    batch_name = imf.split('_')[0]
+    batch_name = os.path.basename(imf).split('_')[0]
     
-    print(os.path.join(sdir, f'splitimages.tif'))
     for flipbook_s,flipbook_e in zip(sindices, eindices):
         # each flipbook is 6 images (5 + 1 padding)
         # convert from flipbook index to image stack indices
@@ -54,13 +45,15 @@ if __name__ == '__main__':
         
         image_stack_s = flipbook_s * 6
         image_stack_e = flipbook_e * 6
-        fbs_str, fbe_str = str(flipbook_s).zfill(6), str(flipbook_e).zfill(6)
+        fbs_str, fbe_str = str(flipbook_s).zfill(4), str(flipbook_e).zfill(4)
                 
-        impath = os.path.join(sdir, f'{batch_name}_splitimages{fbs_str}-{fbe_str}.tif')
-        segpath = os.path.join(sdir, f'{batch_name}_splitlabels{fbs_str}-{fbe_str}.tif')
-        csvpath = os.path.join(sdir, f'{batch_name}_attr{fbs_str}-{fbe_str}.csv')
+        impath = os.path.join(sdir, f'{batch_name}_chunk_{fbs_str}-{fbe_str}.tif')
+        segpath = os.path.join(sdir, f'{batch_name}_chunk_{fbs_str}-{fbe_str}_labels.tif')
+        csvpath = os.path.join(sdir, f'{batch_name}_attr_chunk_{fbs_str}-{fbe_str}.csv')
         io.imsave(impath, im[image_stack_s:image_stack_e], check_contrast=False)
         io.imsave(segpath, seg[image_stack_s:image_stack_e], check_contrast=False)
+
+        # process the csv file
         chunk_csv = attr_csv[flipbook_s:flipbook_e]
         chunk_csv['start'] = chunk_csv['start'] - image_stack_s
         chunk_csv['end'] = chunk_csv['end'] - image_stack_s
