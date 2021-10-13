@@ -10,7 +10,6 @@ from skimage import io
 import matplotlib.pyplot as plt
 import pandas as pd
 import tifffile
-from PIL import Image, ImageSequence
 import cv2
 
 if __name__ == '__main__':
