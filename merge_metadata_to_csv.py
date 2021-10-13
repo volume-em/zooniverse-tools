@@ -40,7 +40,9 @@ if __name__ == '__main__':
     metadata_df['Sample UID'] = metadata_df['Sample UID'].astype('str')
 
     merged_df = consensus_df.merge(metadata_df, how="outer", on=['Sample UID'])
-    merged_df = merged_df[merged_df['stack_start'] >= 0]
+    merged_df = merged_df[merged_df['start'] >= 0]
+    merged_df = merged_df.sort_values(by='start')
 
-    consensus_csv_name = os.path.basename(consensus_csv)
-    merged_df.to_excel(f'{consensus_csv_name}_with_metadata.csv')
+    savedir = os.path.dirname(consensus_csv)
+    consensus_csv_name = os.path.basename(consensus_csv)[:-len('.csv')]
+    merged_df.to_csv(os.path.join(savedir, f'{consensus_csv_name}_with_metadata.csv'), index=False)
