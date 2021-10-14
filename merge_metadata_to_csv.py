@@ -14,7 +14,14 @@ if __name__ == '__main__':
     metadata_excel = args.metadata_excel
     
     consensus_df = pd.read_csv(consensus_csv)
-    metadata_df = pd.read_excel(metadata_excel, sheet_name='ExternalMetadata')
+    external_metadata_df = pd.read_excel(metadata_excel, sheet_name='ExternalMetadata')
+    internal_metadata_df = pd.read_excel(metadata_excel, sheet_name='InternalMetadata')
+    # drop CMM directory column if exists
+    if 'CMM Directory' in internal_metadata_df:
+        internal_metadata_df = internal_metadata_df.drop(columns=['CMM Directory'])
+
+    # concat internal and external metadata sheets
+    metadata_df = pd.concat([internal_metadata_df, external_metadata_df])
 
     # convert from image name to equivalent Sample UID
     # as it would appear in the metadata spreadsheet
