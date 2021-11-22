@@ -1,4 +1,5 @@
 import numpy as np
+import networkx as nx
 from skimage import measure
 from itertools import combinations
 
@@ -144,7 +145,7 @@ def mask_iou(mask1, mask2):
     union = np.count_nonzero(np.logical_or(mask1, mask2))
     return (intersection + 1) / (union + 1)
 
-def mask_aggregation(masks):
+def mask_aggregation(masks, overlap_thr=0.1):
     # consensus segmentation generation
     # generate bounding boxes for all instances
     mask_indices = []
@@ -168,80 +169,50 @@ def mask_aggregation(masks):
     # calculate ious between pairs of boxes
     # and return indices of matching pairs
     box_matches = np.array(pairwise_box_iou(detection_boxes).nonzero()).T
+    
+    # filter out boxes from the same annotator
+    r1_match_ann = mask_indices[box_matches[:, 0]]
+    r2_match_ann = mask_indices[box_matches[:, 1]]
+    box_matches = box_matches[r1_match_ann != r2_match_ann]
+    
     # remove duplicates (because order of items in pair doesn't matter)
     box_matches = np.sort(box_matches, axis=-1)
     box_matches = np.unique(box_matches, axis=0)
     
-    iou_matrix = np.zeros((n_detections, n_detections), dtype=np.float32)
+    graph = nx.Graph()
+    for node_id in range(len(mask_labels)):
+        graph.add_node(node_id)
+        
+    # iou to weighted edges
     for r1, r2 in zip(box_matches[:, 0], box_matches[:, 1]):
-        # self-connections always have iou of 1
-        if r1 != r2:
-            # determine instance labels by mask
-            mask1 = masks[mask_indices[r1]]
-            l1 = mask_labels[r1]
-            box1 = detection_boxes[r1]
+        # determine instance labels by mask
+        mask1 = masks[mask_indices[r1]]
+        l1 = mask_labels[r1]
+        box1 = detection_boxes[r1]
             
-            mask2 = masks[mask_indices[r2]]
-            l2 = mask_labels[r2]
-            box2 = detection_boxes[r2]
+        mask2 = masks[mask_indices[r2]]
+        l2 = mask_labels[r2]
+        box2 = detection_boxes[r2]
             
-            # large enclosing box for both instances
-            box = merge_boxes(box1, box2)
-            mask1 = crop_and_binarize(mask1, box, l1)
-            mask2 = crop_and_binarize(mask2, box, l2)
+        # large enclosing box for both instances
+        box = merge_boxes(box1, box2)
+        mask1 = crop_and_binarize(mask1, box, l1)
+        mask2 = crop_and_binarize(mask2, box, l2)
             
-            pair_iou = mask_iou(mask1, mask2)
-            iou_matrix[r1, r2] = pair_iou
-            iou_matrix[r2, r1] = pair_iou
-        else:
-            iou_matrix[r1, r2] = 1.
+        pair_iou = mask_iou(mask1, mask2)
+        if pair_iou >= overlap_thr:
+            graph.add_edge(r1, r2, iou=pair_iou)
             
-    # group detections together
-    detection_sets = []
-    for row in iou_matrix:
-        # iou greater than small float to filter
-        # weird single pixel overlaps; won't have
-        # much affect if small area of valid instance
-        # gets screened out accidentally
-        group = set(np.where(row > 0.05)[0].tolist())
-        if group not in detection_sets:
-            detection_sets.append(group)
-            
-    # sort detection sets by length
-    detection_sets = sorted(detection_sets, key=lambda x: len(x))
-            
-    # count number of detections shared 
-    # between detection sets
-    group_intersections = np.zeros(tuple(2 * [len(detection_sets)]))
-    for i, i_group in enumerate(detection_sets):
-        for j, j_group in enumerate(detection_sets):
-            if i != j:
-                group_intersections[i, j] = len(i_group.intersection(j_group))
-                
-    # find groups that are subsets of larger sets
-    subsets = []
-    for i, i_group in enumerate(detection_sets):
-        for j, j_group in enumerate(detection_sets):
-            if i != j:
-                intersect = i_group.intersection(j_group)
-                if len(intersect) == len(j_group):
-                    subsets.append(j)
-    
-    # remove all subset groups
-    detection_sets = [
-        detection_sets[i] 
-        for i in range(len(detection_sets)) 
-        if i not in subsets
-    ]
-    
     # return separated masks with confidence
     # maps for each
     instance_scores = []
-    for group in detection_sets:
+    for comp in nx.connected_components(graph):
+        comp = list(comp)
+        
         instance = np.zeros_like(masks[0]).astype(np.float32)
         # add all masks in the group together
         # to get a confidence mask for each
-        for r in group:
+        for r in comp:
             mask = masks[mask_indices[r]]
             label = mask_labels[r]
             instance += (mask == label).astype(np.float32) / len(masks)
@@ -249,6 +220,7 @@ def mask_aggregation(masks):
         instance_scores.append(instance)
             
     return instance_scores
+            
 
 def aggregated_instance_segmentation(aggregated_masks, vote_thr=0.5):
     """
@@ -297,5 +269,4 @@ def aggregated_instance_segmentation(aggregated_masks, vote_thr=0.5):
                 raise Exception('Unsigned 8-bit is invalid for this mask!')
         
     return instance_segmentation
-        
     

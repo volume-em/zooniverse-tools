@@ -13,6 +13,20 @@ def pad_flipbook(flipbook, size):
     assert flipbook.shape[2] == size[1]
     
     return flipbook
+
+def pad_image(image, size):
+    assert image.ndim == 2
+    
+    h, w = image.shape
+    assert size[0] >= h and size[1] >= w
+    
+    ph, pw = size[0] - h, size[1] - w
+    
+    image = np.pad(image, ((0, ph), (0, pw)))
+    assert image.shape[0] == size[0]
+    assert image.shape[1] == size[1]
+    
+    return image
     
     
 def unpad_flipbook():

@@ -14,6 +14,8 @@ if __name__ == '__main__':
                         help='Directory in which to save splitchunked masks')
     parser.add_argument('save_dir', type=str, 
                         help='Directory in which to save splitchunked masks')
+    parser.add_argument('--flipbook', action='store_true', 
+                        help='Whether images in stack are of flipbooks.')
     parser.add_argument('--cs', type=int, default=42, 
                         help='chunk size')
     
@@ -33,7 +35,6 @@ if __name__ == '__main__':
     start = 0
     stop = len(attr_csv)
     step = chunk_size
-    remain = stop - (stop % step)
     sindices = range(start, stop, step) 
     eindices = range(step, stop + step, step)
     batch_name = os.path.basename(imf).split('_')[0]
@@ -43,8 +44,13 @@ if __name__ == '__main__':
         # convert from flipbook index to image stack indices
         flipbook_e = min(stop, flipbook_e)
         
-        image_stack_s = flipbook_s * 6
-        image_stack_e = flipbook_e * 6
+        if args.flipbook:
+            image_stack_s = flipbook_s * 6
+            image_stack_e = flipbook_e * 6
+        else:
+            image_stack_s = flipbook_s
+            image_stack_e = flipbook_e
+            
         fbs_str, fbe_str = str(flipbook_s).zfill(4), str(flipbook_e).zfill(4)
                 
         impath = os.path.join(sdir, f'{batch_name}_chunk_{fbs_str}-{fbe_str}.tif')

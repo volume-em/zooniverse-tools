@@ -13,7 +13,7 @@ from skimage import measure
 from tqdm import tqdm
 from multiprocessing import Pool
 from metrics import *
-from helpers import pad_flipbook
+from helpers import pad_flipbook, pad_image
 from aggregation import mask_aggregation, aggregated_instance_segmentation
 
 if __name__ == '__main__':
@@ -24,8 +24,13 @@ if __name__ == '__main__':
                         help='Directory from which to load images')
     parser.add_argument('save_dir', type=str, 
                         help='Directory in which to save consensus masks')
+    parser.add_argument('default_size', type=int, 
+                        help='Expected default square dimension of each image uploaded to Zooniverse')
+    parser.add_argument('--flipbook', action='store_true', 
+                        help='Whether images to create proofreading stack are flipbooks or 2D images.')
     parser.add_argument('--use-gt', action='store_true', 
                         help='Whether to save gold standard annotations over consensus')
+
     args = parser.parse_args()
     
     if not os.path.isdir(args.save_dir):
@@ -75,16 +80,11 @@ if __name__ == '__main__':
     for i, row in results_df.iterrows():
         # subject id and annotated image name
         subject_id = list(row['subject_data_json'].keys())[0]
-        image_name = row['subject_data_json'][subject_id]['Image 2']
+        key_id = 'Image 2' if args.flipbook else 'Image 0'
+        image_name = row['subject_data_json'][subject_id][key_id]
         
         # subject height and width
-        image_dims = row['metadata_json']['subject_dimensions'][2]
-        
-        if image_dims is None:
-            print(f'Missing image dimensions for {image_name} using (480, 480).')
-            w, h = (480, 480)
-        else:
-            w, h = image_dims['naturalWidth'], image_dims['naturalHeight']
+        w, h = (args.default_size, args.default_size)
         
         # reload or create new subject dict
         if image_name in subject_annotations:
@@ -156,7 +156,10 @@ if __name__ == '__main__':
     for x in consensus_attrs:
         imname, attrs = x
         # convert from imname to stack name
-        stack_fname = '_'.join(imname.split('_')[:-1]) + '.tif'
+        if args.flipbook:
+            stack_fname = '_'.join(imname.split('_')[:-1]) + '.tif'
+        else:
+            stack_fname = imname.replace('.jpg', '.tiff')
 
         # SPECIFIC FOR BATCH 1
         #loc_str = stack_fname.split('-LOC-5stack-')[-1]
@@ -166,32 +169,47 @@ if __name__ == '__main__':
         #xindex = loc_str.split('_')[-2]
         #stack_fname = stack_fname.split('-LOC-')[0] + f'-LOC-5stack-{axis}_{zindex}_{yindex}_{xindex}.tiff'
         
-        try:
-            flipbook = io.imread(os.path.join(args.image_dir, stack_fname))
-        except:
-            print(f'Failed to load {os.path.join(args.image_dir, stack_fname)}.')
-            continue
+        #try:
+        image = io.imread(os.path.join(args.image_dir, stack_fname))
+        #except:
+        #    print(f'Failed to load {os.path.join(args.image_dir, stack_fname)}.')
+        #    continue
             
-        # add an empty padding slice to flipbook
-        flipbook = np.concatenate([flipbook, np.zeros_like(flipbook)[:1]], axis=0)
+        if args.flipbook:
+            h, w = image.shape[1:]
+            # add an empty padding slice to flipbook
+            image = np.concatenate([image, np.zeros_like(image)[:1]], axis=0)
+        else:
+            h, w = image.shape
+
         
-        # resize the mask to the flipbook's h and w
+        # resize the mask to the image's h and w
         mask = attrs['seg']
         
         # cv2 flips height and width
-        mask = cv2.resize(mask, tuple(flipbook.shape[1:][::-1]), interpolation=cv2.INTER_NEAREST)
+        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
         
-        flipbook_mask = np.zeros_like(flipbook)
-        flipbook_mask[2] = mask # 3rd image in stack is the one annotated
+        if args.flipbook:
+            flipbook_mask = np.zeros_like(image)
+            flipbook_mask[2] = mask # 3rd image in stack is the one annotated
+            mask = flipbook_mask
         
-        image_stack.append(flipbook)
-        mask_stack.append(flipbook_mask)
+        image_stack.append(image)
+        mask_stack.append(mask)
+
+        if args.flipbook:
+            start = idx * 6
+            end = (idx + 1) * 6 - 1
+        else:
+            start = idx
+            end = idx
 
         consensus_df = consensus_df.append({
-            'start': idx * 6, 'end': (idx + 1) * 6 - 1,
+            'start': start, 'end': end,
             'image_name': stack_fname, 'zooniverse_id': attrs['id'],
             'median_confidence': attrs['median_confidence'],
-            'consensus_strength': attrs['consensus_strength']
+            'consensus_strength': attrs['consensus_strength'],
+            'height': h, 'width': w
         }, ignore_index=True)
 
         idx += 1
@@ -200,18 +218,31 @@ if __name__ == '__main__':
     batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
     attr_fpath = os.path.join(args.save_dir, f'{batch_name}_consensus_attributes.csv')
     consensus_df.to_csv(attr_fpath, index=False)
-                
+    
     # find dimensions of largest image
-    max_h = max([img.shape[1] for img in image_stack])
-    max_w = max([img.shape[2] for img in image_stack])
+    if args.flipbook:
+        max_h = max([img.shape[1] for img in image_stack])
+        max_w = max([img.shape[2] for img in image_stack])
+    else:
+        max_h = max([img.shape[0] for img in image_stack])
+        max_w = max([img.shape[1] for img in image_stack])
     
     # pad all images and masks to the maximum size
     for ix, (img, msk) in enumerate(zip(image_stack, mask_stack)):
-        image_stack[ix] = pad_flipbook(img, (max_h, max_w))
-        mask_stack[ix] = pad_flipbook(msk, (max_h, max_w))
-        
-    image_stack = np.concatenate(image_stack, axis=0).astype(np.uint8)
-    mask_stack = np.concatenate(mask_stack, axis=0)
+        if args.flipbook:
+            image_stack[ix] = pad_flipbook(img, (max_h, max_w))
+            mask_stack[ix] = pad_flipbook(msk, (max_h, max_w))
+        else:
+            image_stack[ix] = pad_image(img, (max_h, max_w))
+            mask_stack[ix] = pad_image(msk, (max_h, max_w))
+
+    if args.flipbook:
+        image_stack = np.concatenate(image_stack, axis=0).astype(np.uint8)
+        mask_stack = np.concatenate(mask_stack, axis=0)
+    else:
+        image_stack = np.stack(image_stack, axis=0).astype(np.uint8)
+        mask_stack = np.stack(mask_stack, axis=0)
 
     io.imsave(os.path.join(args.save_dir, f'{batch_name}_images.tif'), image_stack, check_contrast=False)
     io.imsave(os.path.join(args.save_dir, f'{batch_name}_cs_masks.tif'), mask_stack, check_contrast=False)
+    
