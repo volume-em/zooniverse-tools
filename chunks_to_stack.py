@@ -5,6 +5,7 @@ import SimpleITK as sitk
 from glob import glob
 from skimage import io
 from skimage import measure
+from skimage.morphology import remove_small_holes
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -14,9 +15,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     fpaths = glob(os.path.join(args.fdir, f'*{args.chunk_str}*'))
-    fpaths = sorted(fpaths)#, key=lambda fp: int(fp.split('labels')[-1].split('_')[0].split('-')[0]))
-    #fpaths = list(filter(lambda x: 'label' not in x, fpaths))
-    #fpaths = list(filter(lambda x: 'mask' not in x, fpaths))
+    fpaths = sorted(fpaths)
 
     stack = []
     for fp in fpaths:
@@ -34,6 +33,14 @@ if __name__ == '__main__':
     # now label connected components
     if args.mask:
         for index in range(2, len(stack), 6):
+            labeled_mask = measure.label(stack[index]).astype(stack.dtype)
+            # fill holes in each label
+            # skip first label i.e. background
+            post_mask = np.zeros_like(labeled_mask)
+            for l in np.unique(labeled_mask)[1:]:
+                lm = remove_small_holes(labeled_mask == l, 32).astype(post_mask)
+                post_mask += lm * l
+
             stack[index] = measure.label(stack[index]).astype(stack.dtype)
 
         out_name += '_cs_masks_proofed.tif'
