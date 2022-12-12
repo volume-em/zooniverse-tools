@@ -29,17 +29,13 @@ import argparse
 import csv
 import cv2
 import json
-import pickle
 import pandas as pd
 import numpy as np
 from glob import glob
 from skimage import io
-from skimage import transform
-from skimage import measure
 from tqdm import tqdm
-from multiprocessing import Pool
-from metrics import *
-from helpers import pad_flipbook, pad_image
+from metrics import average_precision
+from helpers import *
 from aggregation import mask_aggregation, aggregated_instance_segmentation
 
 if __name__ == '__main__':
