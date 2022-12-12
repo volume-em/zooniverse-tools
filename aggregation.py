@@ -3,43 +3,10 @@ import networkx as nx
 from skimage import measure
 from itertools import combinations
 
-def overlap_labels(masks):
-    gt = measure.label(gt)
-    new_labels = measure.label(new_labels)
-
-    n_gt = len(np.unique(gt))
-    n_new = len(np.unique(new_labels))
-    hist_array = np.histogram2d(gt.ravel(), new_labels.ravel(), bins=(range(n_gt + 1), range(n_new + 1)))[0]
-    gt_new_labels = np.where(hist_array.sum(1) > 0)[0]
-
-    out = np.zeros_like(gt)
-    for l in gt_new_labels:
-        if l > 0:
-            out += gt == l
-
-    return out > 0
-
-def remove_labels(gt, remove):
-    gt = measure.label(gt)
-    remove = measure.label(remove)
-
-    n_gt = len(np.unique(gt))
-    n_remove = len(np.unique(remove))
-    if n_remove > 1:
-        hist_array = np.histogram2d(gt.ravel(), remove.ravel(), bins=(range(n_gt + 1), range(n_remove + 1)))[0]
-        in_back = hist_array[:, 0]
-        in_fore = hist_array[:, 1:].sum(1)
-        gt_remove = np.where(np.logical_and(in_fore > in_back, in_fore > 0))[0]
-
-        out = np.zeros_like(gt)
-        for l in np.unique(gt):
-            if l > 0:
-                if l not in gt_remove:
-                    out += gt == l
-    else:
-        out = gt
-
-    return out > 0
+__all__ = [
+    'mask_aggregation', 
+    'aggregated_instance_segmentation'
+]
 
 def box_area(boxes):
     """
@@ -135,22 +102,35 @@ def merge_boxes(box1, box2):
 
 def crop_and_binarize(mask, box, label):
     """
-    Crop and binarize a mask
+    Crops and binarizes an instance mask
+    around a particular label.
     """
     ymin, xmin, ymax, xmax = box
     return mask[ymin:ymax, xmin:xmax] == label
 
 def mask_iou(mask1, mask2):
+    """
+    Computes the intersection-over-union between two 
+    binary segmentation masks.
+    """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
     union = np.count_nonzero(np.logical_or(mask1, mask2))
     return intersection / union
 
 def mask_ioa(mask1, mask2):
+    """
+    Computes the intersection-over-area between two 
+    binary segmentation masks.
+    """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
     area = np.count_nonzero(mask1)
     return intersection / area
 
 def calculate_clique_ious(G, clique1, clique2):
+    """
+    Computes the average IoU between all instances in clique1
+    and clique 2.
+    """
     all_ious = []
     for node1 in clique1:
         for node2 in clique2:
@@ -163,6 +143,11 @@ def calculate_clique_ious(G, clique1, clique2):
     return sum(all_ious) / len(all_ious)
 
 def create_clique_graph(G, iou_threshold, min_clique_iou=0.1):
+    """
+    Creates a graph where each node represents a clique
+    of overlapping objects in instance segmentations of
+    the same image.
+    """
     # get a list of edges to drop from the graph
     drop_edges = []
     for (u, v, d) in G.edges(data=True):
@@ -194,6 +179,10 @@ def create_clique_graph(G, iou_threshold, min_clique_iou=0.1):
     return clique_graph
 
 def pull_clique(G, src, dst):
+    """
+    Pulls instances from one clique into another clique
+    and then removes the edge connecting the cliques.
+    """
     # merge clique from src to dst
     src_clique = G.nodes[src]['clique']
     G.nodes[dst]['clique'] = G.nodes[dst]['clique'].union(src_clique)
@@ -202,6 +191,10 @@ def pull_clique(G, src, dst):
     return G
 
 def merge_cliques(G):
+    """
+    Merges or splits instances within
+    a clique of overlapping object labelmaps.
+    """
     H = G.copy()
     while len(H.edges()) > 0:
         # sorted nodes by the number of neighbors
@@ -245,6 +238,27 @@ def merge_cliques(G):
     return H
 
 def mask_aggregation(masks, overlap_thr=0.1):
+    """
+    Takes a list of instance segmentation masks
+    and returns a list of vote count maps. There is
+    one map generated for each potential object instance.
+    
+    Arguments:
+    -----------
+    masks (List[np.ndarray]): List of (h, w) instance
+    segmentation masks (each object has a different label).
+    
+    overlap_thr (Float): Maximum overlap (from 0-1) allowed
+    between potential objects. Any pair of instances that exceed
+    this overlap threshold will be put into the same clique.
+    
+    Returns:
+    ---------
+    instance_scores (List[np.ndarray]): List of (h, w) where
+    each array has values from 0 to len(masks). Values represent
+    the number of votes that a given pixel received.
+    
+    """
     # consensus segmentation generation
     # generate bounding boxes for all instances
     mask_indices = []
@@ -324,17 +338,20 @@ def mask_aggregation(masks, overlap_thr=0.1):
     return instance_scores
 
 
-def aggregated_instance_segmentation(aggregated_masks, vote_thr=0.5):
+def aggregated_instance_segmentation(aggregated_masks, vote_thr=0.5, start=1):
     """
     Merges a list of masks into an instance segmentation.
 
     Arguments:
     ----------
-    aggregated_masks: List of n (h, w) confidence aggregated masks.
+    aggregated_masks: List of n x (h, w) confidence aggregated masks.
     E.g. output from mask_aggregation function.
 
     vote_thr: Integer. Threshold number of votes over which
-    to mark a pixel as part of a segmentation. Default 0.4.
+    to mark a pixel as part of a segmentation. Default 0.5.
+    
+    start: Integer. The label_id to start at for labeling the
+    instances sequentially.
 
     Returns:
     --------
@@ -343,17 +360,16 @@ def aggregated_instance_segmentation(aggregated_masks, vote_thr=0.5):
 
     """
     mask_shape = aggregated_masks[0].shape
-    instance_segmentation = np.zeros(mask_shape, dtype=np.uint8)
+    instance_segmentation = np.zeros(mask_shape, dtype=np.int32)
 
     # add each detection with an new label
-    label = 1
     for mask in aggregated_masks:
         # threshold the mask
         mask = mask >= vote_thr
 
         # relabel in case new connected
         # components fall out
-        mask = measure.label(mask).astype(np.uint8)
+        mask = measure.label(mask)
 
         # number and values of new labels
         # excluding background value of 0
@@ -361,14 +377,7 @@ def aggregated_instance_segmentation(aggregated_masks, vote_thr=0.5):
 
         for ml in mask_labels:
             ml_mask = mask == ml
-            ##detection_seg = (ml_mask * label).astype(instance_segmentation.dtype)
-            instance_segmentation[ml_mask] = label
-            label += 1
-
-            # will probably never have more
-            # than 255 instances for small images
-            # like these, but let's avoid any headaches
-            if label >= 255:
-                raise Exception('Unsigned 8-bit is invalid for this mask!')
+            instance_segmentation[ml_mask] = start
+            start += 1
 
     return instance_segmentation
