@@ -36,7 +36,7 @@ set with the prepared images/flipbooks uploaded and ready for annotation.
 
 **4. Download the annotations**
 
-Login to Zooniverse and perform a classification export, see [here])(https://help.zooniverse.org/next-steps/data-exports/).
+Login to Zooniverse and perform a classification export, see [here](https://help.zooniverse.org/next-steps/data-exports/).
 
 **5. Create stacks of images and consensus segmentations for proofreading**
 
