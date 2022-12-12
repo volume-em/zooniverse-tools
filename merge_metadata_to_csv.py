@@ -1,3 +1,11 @@
+"""
+Merges consensus creation metadata with dataset metadata.
+This is useful to analyze if the quality of user generated
+annotations correlates with image metadata. The expected
+metadata_excel should like something like cem_mitolab_metadata.xlsx file
+available on EMPIAR: https://www.ebi.ac.uk/empiar/EMPIAR-11037/
+"""
+
 import os
 import argparse
 import numpy as np
