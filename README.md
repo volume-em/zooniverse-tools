@@ -3,7 +3,7 @@ Scripts and notebooks for data wrangling from Zooniverse.
 
 After organizing images/flipbooks into a single directory, our workflow is:
 
-**[1. (Optional) Anonymize names](#anonymize)**
+**1. (Optional) Anonymize names**
 
 Dataset names sometimes have sensitive information like PI or collaborator
 name. The ```anonymize_names.py``` script replaces those details with
@@ -14,7 +14,7 @@ are saved in a .csv file.
 python ../zooniverse_tools/anonymize_names.py flipbooks/
 ```
 
-**[2. Prepare images/flipbooks for upload to Zooniverse](#prepare)**
+**2. Prepare images/flipbooks for upload to Zooniverse**
 
 For grayscale images use the ```prep_images.py``` script or for flipbooks use 
 ```prep_flipbooks.py```. These scripts (a) resize all images/flipbooks to a fixed
