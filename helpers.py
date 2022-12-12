@@ -1,6 +1,12 @@
 import numpy as np
 
+__all__ = [
+    'pad_flipbook',
+    'pad_image'
+]
+
 def pad_flipbook(flipbook, size):
+    """Zero pads a flipbook (h, w) dimensions only."""
     assert flipbook.ndim == 3
     
     h, w = flipbook.shape[1:]
@@ -15,6 +21,7 @@ def pad_flipbook(flipbook, size):
     return flipbook
 
 def pad_image(image, size):
+    """Zero pads an image (h, w) dimensions only."""
     assert image.ndim == 2
     
     h, w = image.shape
