@@ -1,3 +1,29 @@
+"""
+This scripts takes an annotation_csv downloaded from Zooniverse and
+local image source directories and returns a single stack of
+all images/flipbooks and correspond consensus annotations.
+
+Arguments:
+-----------
+annotation_csv: Path to the Zooniverse downloaded annotations.
+
+image_dir: Directory that contains the source images uploaded
+to Zooniverse. This should be the wdir from upload_images.ipynb.
+
+save_dir: Directory in which to save results.
+
+default_size: It's assumed that all images uploaded to Zooniverse
+have the same (h, w) dimensions and are square. This parameter should
+be set to this size. Instance segmentations will be incorrectly positioned
+if this parameter is set incorrectly.
+
+flipbook: Flag denoting that the annotations/images are for flipbooks.
+
+flipbook-n: Number of images contained in a single flipbook. 
+Should typically be an odd number. Default of 5.
+
+"""
+
 import os
 import argparse
 import csv
@@ -28,9 +54,8 @@ if __name__ == '__main__':
                         help='Expected default square dimension of each image uploaded to Zooniverse')
     parser.add_argument('--flipbook', action='store_true',
                         help='Whether images to create proofreading stack are flipbooks or 2D images.')
-    parser.add_argument('--use-gt', action='store_true',
-                        help='Whether to save gold standard annotations over consensus')
-
+    parser.add_argument('--flipbook-n', type='int', default=5,
+                        help='If flipbook is True, this is the number of images per flipbook.')
     args = parser.parse_args()
 
     if not os.path.isdir(args.save_dir):
@@ -41,7 +66,7 @@ if __name__ == '__main__':
     csv.field_size_limit(256<<12)
     csv.field_size_limit()
     results_df = pd.read_csv(args.annotation_csv)
-    print(f'Loading annotation csv with {len(results_df)} rows.')
+    print(f'Loaded annotation csv with {len(results_df)} rows.')
 
     # convert the metadata fields to parsable json strings
     results_df['metadata_json'] = [json.loads(q) for q in results_df.metadata]
@@ -52,7 +77,8 @@ if __name__ == '__main__':
         """Helper function for extracting polygons and confidence"""
         confidence = None
         for task in annotation:
-            # annotation is task T0
+            # annotation is task T0 in our workflow
+            # with a confidence score question
             if task['task'] == 'T0':
                 # if not labeled objects, annotation is blank list
                 if task['value']:
@@ -67,20 +93,20 @@ if __name__ == '__main__':
                 confidence = int(task['value'][:1])
 
         if confidence is None:
-            print([task['task'] for task in annotation])
-            print(f'No confidence found for image, using 1!')
-            confidence = 2
-
+            print(f'No confidence score found for image')
+            confidence = 0
 
         return polygons, confidence
 
+    # extracts all polygon annotations from
+    # the results csv and organizes them by the subject_id
     # keys are image names and values are attributes
     subject_annotations = {}
-
     for i, row in results_df.iterrows():
         # subject id and annotated image name
         subject_id = list(row['subject_data_json'].keys())[0]
-        key_id = 'Image 2' if args.flipbook else 'Image 0'
+        # image name key is middle slice in flipbook or 0
+        key_id = f'Image {args.flipbook_n // 2}' if args.flipbook else 'Image 0'
         image_name = row['subject_data_json'][subject_id][key_id]
 
         # subject height and width
@@ -91,15 +117,12 @@ if __name__ == '__main__':
             subject_dict = subject_annotations[image_name]
         else:
             subject_dict = {'id': subject_id, 'shape': (w, h),
-                            'confidences': [], 'polygons': [],
-                            'is_gt': []}
+                            'confidences': [], 'polygons': []}
 
         annotation = row['annotations_json']
         metadata = row['metadata_json']
 
         polygons, confidence = parse_annotation(annotation)
-        subject_dict['is_gt'].append(row['gold_standard'] is True)
-        #subject_dict['is_gt'].append(row['user_name'] == 'conradry')
         subject_dict['polygons'].append(polygons)
         subject_dict['confidences'].append(confidence)
 
@@ -112,18 +135,11 @@ if __name__ == '__main__':
     for imname, subject_dict in tqdm(subject_annotations.items(), total=len(subject_annotations)):
         subject_id = subject_dict['id']
         image_shape = subject_dict['shape']
-        is_gt = subject_dict['is_gt']
 
         # create instance segmentations from polygons
         masks = []
-        using_gt = False
-        for gt, polyset in zip(is_gt, subject_dict['polygons']):
-            if gt and args.use_gt:
-                masks = [poly2segmentation(polyset, image_shape)]
-                using_gt = True
-                break
-            else:
-                masks.append(poly2segmentation(polyset, image_shape))
+        for polyset in subject_dict['polygons']:
+            masks.append(poly2segmentation(polyset, image_shape))
 
         # create consensus instance segmentation
         instance_scores = mask_aggregation(masks)
@@ -132,10 +148,7 @@ if __name__ == '__main__':
         # compute average precision between each
         # mask and the consensus, this measures strength
         # of the consensus annotations
-        if using_gt:
-            scores = [10]
-        else:
-            scores = [average_precision(instance_seg, mask, 0.50, False)[0] for mask in masks]
+        scores = [average_precision(instance_seg, mask, 0.50, False)[0] for mask in masks]
 
         median_confidence = np.median(subject_dict['confidences'])
         consensus_strength = np.mean(scores)
@@ -151,38 +164,31 @@ if __name__ == '__main__':
     image_stack = []
     mask_stack = []
 
-    consensus_df = pd.DataFrame(columns=['start', 'end', 'image_name', 'zooniverse_id', 'median_confidence', 'consensus_strength'])
+    consensus_df = pd.DataFrame(columns=[
+        'start', 'end', 'image_name', 'zooniverse_id', 
+        'median_confidence', 'consensus_strength'
+    ])
 
     idx = 0
     for x in consensus_attrs:
         imname, attrs = x
         # convert from imname to stack name
         if args.flipbook:
+            # remove the _zloc from imname
             stack_fname = '_'.join(imname.split('_')[:-1]) + '.tif'
         else:
             stack_fname = imname.replace('.jpg', '.tiff')
-
-        # SPECIFIC FOR BATCH 1
-        #loc_str = stack_fname.split('-LOC-5stack-')[-1]
-        #axis = loc_str.split('_')[-3][:1]
-        #zindex = loc_str.split('_')[-1].split('.tif')[0].zfill(4)
-        #yindex = loc_str.split('_')[-3][1:]
-        #xindex = loc_str.split('_')[-2]
-        #stack_fname = stack_fname.split('-LOC-')[0] + f'-LOC-5stack-{axis}_{zindex}_{yindex}_{xindex}.tiff'
-
-        #try:
+            
+        # image is either (flipbook_n,)
         image = io.imread(os.path.join(args.image_dir, stack_fname))
-        #except:
-        #    print(f'Failed to load {os.path.join(args.image_dir, stack_fname)}.')
-        #    continue
-
         if args.flipbook:
-            h, w = image.shape[1:]
-            # add an empty padding slice to flipbook
-            image = np.concatenate([image, np.zeros_like(image)[:1]], axis=0)
+            n, h, w = image.shape
+            if n != args.flipbook_n:
+                raise Exception(
+                    f'Given flipbook-n {args.flipbook_n} does not match length of loaded flipbook {n}'
+                )
         else:
             h, w = image.shape
-
 
         # resize the mask to the image's h and w
         mask = attrs['seg']
@@ -192,21 +198,14 @@ if __name__ == '__main__':
 
         if args.flipbook:
             flipbook_mask = np.zeros_like(image)
-            flipbook_mask[2] = mask # 3rd image in stack is the one annotated
+            flipbook_mask[args.flipbook_n // 2] = mask # middle image in stack is the one annotated
             mask = flipbook_mask
 
         image_stack.append(image)
         mask_stack.append(mask)
 
-        if args.flipbook:
-            start = idx * 6
-            end = (idx + 1) * 6 - 1
-        else:
-            start = idx
-            end = idx
-
         consensus_df = consensus_df.append({
-            'start': start, 'end': end,
+            'stack_index': idx,
             'image_name': stack_fname, 'zooniverse_id': attrs['id'],
             'median_confidence': attrs['median_confidence'],
             'consensus_strength': attrs['consensus_strength'],
@@ -215,12 +214,12 @@ if __name__ == '__main__':
 
         idx += 1
 
-    # save the consensus attributes as a list
+    # save the consensus attributes as a csv
     batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
     attr_fpath = os.path.join(args.save_dir, f'{batch_name}_consensus_attributes.csv')
     consensus_df.to_csv(attr_fpath, index=False)
 
-    # find dimensions of largest image
+    # find (h, w) dimensions of largest image
     if args.flipbook:
         max_h = max([img.shape[1] for img in image_stack])
         max_w = max([img.shape[2] for img in image_stack])
@@ -237,12 +236,9 @@ if __name__ == '__main__':
             image_stack[ix] = pad_image(img, (max_h, max_w))
             mask_stack[ix] = pad_image(msk, (max_h, max_w))
 
-    if args.flipbook:
-        image_stack = np.concatenate(image_stack, axis=0).astype(np.uint8)
-        mask_stack = np.concatenate(mask_stack, axis=0)
-    else:
-        image_stack = np.stack(image_stack, axis=0).astype(np.uint8)
-        mask_stack = np.stack(mask_stack, axis=0)
+    # stack into 3d or 4d images
+    image_stack = np.stack(image_stack, axis=0).astype(np.uint8)
+    mask_stack = np.stack(mask_stack, axis=0)
 
     io.imsave(os.path.join(args.save_dir, f'{batch_name}_images.tif'), image_stack, check_contrast=False)
     io.imsave(os.path.join(args.save_dir, f'{batch_name}_cs_masks.tif'), mask_stack, check_contrast=False)
