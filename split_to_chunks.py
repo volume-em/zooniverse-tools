@@ -16,7 +16,7 @@ Returns:
 --------
 An image and mask stack as well as an attrs .csv for each chunk.
 
-Note: Chunks can be restacked into a single file with chunks_to_stack.py.
+Note: Chunks can be restacked into a single file with concat_mask_chunks.py.
 
 """
 
