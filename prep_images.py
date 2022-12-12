@@ -1,3 +1,12 @@
+"""
+Prepares a directory of grayscale images for upload to Zooniverse:
+
+1. Resizes the image to be square with a given edge length (--size)
+2. Optionally, normalizes the contrast of the image with histogram
+equalization and rescaling from 0 to 255 (--contrast)
+3. Saves the image as a jpeg
+
+"""
 import os, cv2
 import argparse
 import numpy as np
@@ -8,10 +17,10 @@ from skimage.exposure import equalize_hist
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('imdir', type=str)
-    parser.add_argument('savedir', type=str)
-    parser.add_argument('--size', type=int, default=480)
-    parser.add_argument('--contrast', action='store_true')
+    parser.add_argument('imdir', type=str, help='Directory containing tif images to prepare')
+    parser.add_argument('savedir', type=str, help='Directory in which to save processed jpgs')
+    parser.add_argument('--size', type=int, default=480, help='Square dimension of resized image')
+    parser.add_argument('--contrast', action='store_true', help='Whether to equalize and rescale image contrast')
     args = parser.parse_args()
     
     imdir = args.imdir
@@ -20,7 +29,7 @@ if __name__ == '__main__':
     contrast = args.contrast
     
     # glob all the images
-    fpaths = glob(os.path.join(imdir, '*.tiff'))
+    fpaths = glob(os.path.join(imdir, '*.tif*'))
     print(f'Found {len(fpaths)} .tiff images to prepare.')
     
     # create savedir if is doesn't exist
