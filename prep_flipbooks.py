@@ -2,8 +2,10 @@
 Prepares a directory of grayscale flipbooks for upload to Zooniverse:
 
 1. Resizes the flipbook in (h, w) to be square with a given edge length (--size)
+
 2. Optionally, normalizes the contrast of the flipbook with histogram
-equalization and rescaling from 0 to 255 (--contrast)
+equalization and rescaling from 25 to 230 (--contrast)
+
 3. Saves each image in the flipbook as a separate jpg. The original name
 of the flipbook has a suffix '_{zindex}.jpg' added. The zindex is the position
 of the image in the flipbook. E.g. the first image will be called 'flipbook_name_0.jpg' and
@@ -48,12 +50,13 @@ if __name__ == '__main__':
         for i, image in enumerate(stack):
             # resize the image
             image = transform.resize(image, (size, size), preserve_range=True)
-            image = np.clip(image, 0, 255).astype(np.uint8)
             
             # fix the contrast
             if contrast:
                 image = rescale_intensity(image, in_range=(0, 255), out_range=(25, 230))
                 
+            image = np.clip(image, 0, 255).astype(np.uint8)
+            
             # save the jpg
             out_fname = os.path.join(savedir, fname.replace('.tif', f'_{i}.jpg'))
             io.imsave(out_fname, image, quality=100, check_contrast=False)

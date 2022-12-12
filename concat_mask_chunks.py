@@ -18,11 +18,8 @@ the '{chunk}_{s}-{e}' part of the filename from split_to_chunks.py
 import os
 import argparse
 import numpy as np
-import SimpleITK as sitk
 from glob import glob
 from skimage import io
-from skimage import measure
-from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation, disk
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

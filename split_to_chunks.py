@@ -75,5 +75,5 @@ if __name__ == '__main__':
 
         # update and save the csv file chunk
         chunk_csv = attr_csv[s:e]
-        chunk_csv['stack_index'] = chunk_csv['stack_index'] - s
+        chunk_csv[:, 'stack_index'] = chunk_csv['stack_index'] - s
         chunk_csv.to_csv(csvpath, index=False)

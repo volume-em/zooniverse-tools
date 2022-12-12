@@ -12,15 +12,14 @@ to Zooniverse. This should be the wdir from upload_images.ipynb.
 
 save_dir: Directory in which to save results.
 
-default_size: It's assumed that all images uploaded to Zooniverse
+size: It's assumed that all images uploaded to Zooniverse
 have the same (h, w) dimensions and are square. This parameter should
-be set to this size. Instance segmentations will be incorrectly positioned
-if this parameter is set incorrectly.
-
-flipbook: Flag denoting that the annotations/images are for flipbooks.
+be set to this size. It should match the '--size' argument given to
+either the prep_images.py or prep_stacks.pt scripts.
 
 flipbook-n: Number of images contained in a single flipbook. 
-Should typically be an odd number. Default of 5.
+Should typically be an odd number. If parameter is not set it's
+assumed that flipbooks are not being used.
 
 """
 
@@ -46,16 +45,17 @@ if __name__ == '__main__':
                         help='Directory from which to load images')
     parser.add_argument('save_dir', type=str,
                         help='Directory in which to save consensus masks')
-    parser.add_argument('default_size', type=int,
+    parser.add_argument('--size', type=int, default=480,
                         help='Expected default square dimension of each image uploaded to Zooniverse')
-    parser.add_argument('--flipbook', action='store_true',
-                        help='Whether images to create proofreading stack are flipbooks or 2D images.')
-    parser.add_argument('--flipbook-n', type='int', default=5,
-                        help='If flipbook is True, this is the number of images per flipbook.')
+    parser.add_argument('--flipbook-n', type=int, default=0,
+                        help='If proofreading flipbooks, this is the number of images per flipbook.')
     args = parser.parse_args()
 
     if not os.path.isdir(args.save_dir):
         os.mkdir(args.save_dir)
+        
+    if args.flipbook_n == 0:
+        args.flipbook_n = None
 
     print('Loading annotation csv...')
     # necessary to handle overflow of long csv columns
@@ -102,11 +102,11 @@ if __name__ == '__main__':
         # subject id and annotated image name
         subject_id = list(row['subject_data_json'].keys())[0]
         # image name key is middle slice in flipbook or 0
-        key_id = f'Image {args.flipbook_n // 2}' if args.flipbook else 'Image 0'
+        key_id = f'Image {args.flipbook_n // 2}' if args.flipbook_n is not None else 'Image 0'
         image_name = row['subject_data_json'][subject_id][key_id]
 
         # subject height and width
-        w, h = (args.default_size, args.default_size)
+        w, h = (args.size, args.size)
 
         # reload or create new subject dict
         if image_name in subject_annotations:
@@ -159,25 +159,21 @@ if __name__ == '__main__':
 
     image_stack = []
     mask_stack = []
-
-    consensus_df = pd.DataFrame(columns=[
-        'start', 'end', 'image_name', 'zooniverse_id', 
-        'median_confidence', 'consensus_strength'
-    ])
+    consensus_records = []
 
     idx = 0
     for x in consensus_attrs:
         imname, attrs = x
         # convert from imname to stack name
-        if args.flipbook:
-            # remove the _zloc from imname
+        if args.flipbook_n:
+            # remove the _{zindex} from imname
             stack_fname = '_'.join(imname.split('_')[:-1]) + '.tif'
         else:
             stack_fname = imname.replace('.jpg', '.tiff')
             
-        # image is either (flipbook_n,)
+        # image is either (flipbook_n, h, w) or (h, w)
         image = io.imread(os.path.join(args.image_dir, stack_fname))
-        if args.flipbook:
+        if args.flipbook_n is not None:
             n, h, w = image.shape
             if n != args.flipbook_n:
                 raise Exception(
@@ -192,7 +188,7 @@ if __name__ == '__main__':
         # cv2 flips height and width
         mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
 
-        if args.flipbook:
+        if args.flipbook_n is not None:
             flipbook_mask = np.zeros_like(image)
             flipbook_mask[args.flipbook_n // 2] = mask # middle image in stack is the one annotated
             mask = flipbook_mask
@@ -200,23 +196,24 @@ if __name__ == '__main__':
         image_stack.append(image)
         mask_stack.append(mask)
 
-        consensus_df = consensus_df.append({
+        consensus_records.append({
             'stack_index': idx,
             'image_name': stack_fname, 'zooniverse_id': attrs['id'],
             'median_confidence': attrs['median_confidence'],
             'consensus_strength': attrs['consensus_strength'],
             'height': h, 'width': w
-        }, ignore_index=True)
+        })
 
         idx += 1
 
     # save the consensus attributes as a csv
     batch_name = '-'.join(args.annotation_csv.split('-')[:-1])
     attr_fpath = os.path.join(args.save_dir, f'{batch_name}_consensus_attributes.csv')
+    consensus_df = pd.DataFrame.from_records(consensus_records)
     consensus_df.to_csv(attr_fpath, index=False)
 
     # find (h, w) dimensions of largest image
-    if args.flipbook:
+    if args.flipbook_n:
         max_h = max([img.shape[1] for img in image_stack])
         max_w = max([img.shape[2] for img in image_stack])
     else:
@@ -225,7 +222,7 @@ if __name__ == '__main__':
 
     # pad all images and masks to the maximum size
     for ix, (img, msk) in enumerate(zip(image_stack, mask_stack)):
-        if args.flipbook:
+        if args.flipbook_n is not None:
             image_stack[ix] = pad_flipbook(img, (max_h, max_w))
             mask_stack[ix] = pad_flipbook(msk, (max_h, max_w))
         else:

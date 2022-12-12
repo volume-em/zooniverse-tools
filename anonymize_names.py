@@ -20,6 +20,12 @@ import argparse
 import pandas as pd
 from glob import glob
 
+ORDERED_SPLIT_STRS = [
+    '-ROI-',
+    '-LOC-2d-',
+    '-LOC-'
+]
+
 def make_random_prefix(size=20):
     """
     Creates a random alphanumeric prefix with length "size".
@@ -50,18 +56,20 @@ if __name__ == '__main__':
     if not impaths:
         raise Exception(f'Directory {imdir} if expected to contain .tif(f) images! None found.')
     
-    # prefix is everything before LOC
-    # if -LOC- isn't in the name then the
-    # whole image name will be anonymized
-    prefixes = [os.path.basename(fp).split('-LOC-')[0] for fp in impaths]
-    
+    # prefix is everything before split-str
+    # if split-str isn't in the filename then
+    # each image will have a unique random prefix
+    # (this is bad if you want to group images by source dataset)
     prefixes = {}
-    used_strings = []
     for fp in impaths:
-        prefix = os.path.basename(fp).split('-LOC-')[0]
+        prefix = '.'.join(os.path.basename(fp).split('.')[:-1])
+        for split_str in ORDERED_SPLIT_STRS:
+            if split_str in prefix:
+                prefix = prefix.split(split_str)[0]
+                break
+            
         if prefix not in prefixes:
             random_prefix = make_random_prefix(20)
-            assert random_prefix not in used_strings # virtually 0 chance
             prefixes[prefix] = random_prefix
         else:
             random_prefix = prefixes[prefix]
