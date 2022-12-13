@@ -19,6 +19,13 @@ pip install -r requirements.txt
 
 ## Scripts and workflow
 
+Before getting started, this workflow assumes that you have a directory
+of images/flipbooks already prepared. Internally, we use scripts in the
+[cem-dataset](https://github.com/volume-em/cem-dataset) repository to
+process 2D and 3D data and create image/flipbooks ready for Zooniverse.
+Specifically, for creating flipbooks we use 
+[this script](https://github.com/volume-em/cem-dataset/tree/master/dataset#reconstructing-subvolumes-and-flipbooks)
+
 After organizing images/flipbooks into a single directory, our workflow is:
 
 **1. (Optional) Anonymize names**
