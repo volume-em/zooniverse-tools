@@ -1,6 +1,24 @@
 # CEM Zooniverse Tools
 Scripts and notebooks for data wrangling from Zooniverse.
 
+## Clone and install dependencies
+
+Clone the scripts, notebooks and helper code in this repo:
+
+```bash
+git clone https://github.com/volume-em/zooniverse-tools.git
+```
+
+Install necessary dependencies with pip:
+
+```bash
+pip install -r requirements.txt
+```
+
+**Note: Code was validated for Python 3.7+ only**
+
+## Scripts and workflow
+
 After organizing images/flipbooks into a single directory, our workflow is:
 
 **1. (Optional) Anonymize names**
@@ -132,4 +150,8 @@ python ../zooniverse-tools/save_stacks.py proofed/flipbook_image.tif \
 ```
 
 **NOTE: If the directory training_data already exists, the segmentations will simply
-be added into the existing structure with datasets still remaining correctly grouped.**
+be added into the existing structure with datasets remaining correctly grouped.**
+
+## Data Analysis
+
+The ```data_analyis.ipynb``` notebook enables visualization of individual user-created annotations along with the generated consensus. This kind of analysis can be useful to identify users who are struggling to create accurate annotations or to identify images that are difficult to annotate and may require follow up.
